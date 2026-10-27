@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>مغامرة البطل الصغير</title>
+<style>
+*{box-sizing:border-box} html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#78d8ff;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;touch-action:none}
+#wrap{height:100%;display:flex;flex-direction:column;max-width:900px;margin:auto}
+#top{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;color:#17365d;font-weight:800;background:#ffffff55}
+#game{display:block;width:100%;flex:1;min-height:0;background:linear-gradient(#75d9ff,#d4f6ff)}
+#controls{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:12px 18px calc(12px + env(safe-area-inset-bottom));background:#17365d}
+.group{display:flex;gap:12px}.btn{width:64px;height:58px;border:0;border-radius:16px;background:#fff;color:#17365d;font-size:26px;font-weight:900;box-shadow:0 4px 0 #a8c6df;touch-action:none;user-select:none}.btn:active,.btn.down{transform:translateY(3px);box-shadow:0 1px 0 #a8c6df;background:#ffe08a}.jump{width:84px;background:#ffcf4a}
+#overlay{position:fixed;inset:0;background:#10233acc;display:flex;align-items:center;justify-content:center;padding:20px}
+.panel{width:min(420px,100%);background:white;border-radius:24px;padding:24px;text-align:center;color:#17365d;box-shadow:0 15px 50px #0004}
+.panel h1{margin:0 0 8px;font-size:27px}.panel p{line-height:1.7}.mainbtn{border:0;border-radius:14px;background:#ffca3a;padding:13px 25px;font-size:18px;font-weight:900;color:#17365d}
+.small{font-size:13px;color:#52677d}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="top"><span>⭐ النقاط: <b id="score">0</b></span><span>❤️ الأرواح: <b id="lives">3</b></span><span>🪙 <b id="coins">0</b></span></div>
+  <canvas id="game" aria-label="لعبة منصات"></canvas>
+  <div id="controls">
+    <div class="group">
+      <button class="btn" id="left" aria-label="يسار">◀</button>
+      <button class="btn" id="right" aria-label="يمين">▶</button>
+    </div>
+    <button class="btn jump" id="jump" aria-label="قفز">⬆ قفز</button>
+  </div>
+</div>
+<div id="overlay">
+ <div class="panel">
+  <h1 id="title">مغامرة البطل الصغير</h1>
+  <p id="message">اجمع العملات الذهبية واقفز فوق الأعداء، ووصل إلى العلم في نهاية الطريق!</p>
+  <p class="small">استخدم ◀ ▶ للحركة وزر «قفز» لتجاوز الحفر والأعداء.</p>
+  <button class="mainbtn" id="start">ابدأ اللعب</button>
+ </div>
+</div>
+<script>
+(() => {
+const canvas=document.getElementById('game'), ctx=canvas.getContext('2d');
+const scoreEl=document.getElementById('score'), livesEl=document.getElementById('lives'), coinsEl=document.getElementById('coins');
+const overlay=document.getElementById('overlay'), titleEl=document.getElementById('title'), messageEl=document.getElementById('message'), startBtn=document.getElementById('start');
+let W=800,H=450,scale=1,last=0,playing=false,score=0,coins=0,lives=3,camera=0,worldW=2600;
+let keys={left:false,right:false,jump:false}, jumpQueued=false;
+const player={x:60,y:250,w:30,h:38,vx:0,vy:0,onGround:false,invuln:0};
+let platforms=[], coinItems=[], enemies=[], flagX=worldW-100;
+function resize(){
+ const r=canvas.getBoundingClientRect(); const dpr=Math.min(window.devicePixelRatio||1,2);
+ W=Math.max(320,r.width); H=Math.max(260,r.height); canvas.width=Math.round(W*dpr);canvas.height=Math.round(H*dpr);
+ ctx.setTransform(canvas.width/W,0,0,canvas.height/H,0,0);
+}
+window.addEventListener('resize',resize);
+function makeWorld(){
+ platforms=[{x:0,y:H-48,w:430,h:48},{x:500,y:H-48,w:340,h:48},{x:920,y:H-48,w:350,h:48},{x:1350,y:H-48,w:370,h:48},{x:1790,y:H-48,w:330,h:48},{x:2200,y:H-48,w:400,h:48},
+ {x:190,y:H-125,w:115,h:18},{x:580,y:H-135,w:115,h:18},{x:740,y:H-195,w:105,h:18},{x:1010,y:H-140,w:120,h:18},{x:1450,y:H-175,w:130,h:18},{x:1630,y:H-115,w:100,h:18},{x:1870,y:H-155,w:120,h:18},{x:2070,y:H-210,w:120,h:18},{x:2330,y:H-145,w:120,h:18}];
+ coinItems=[];
+ [[220,H-165],[260,H-165],[620,H-175],[780,H-235],[1040,H-180],[1090,H-180],[1490,H-215],[1660,H-155],[1910,H-195],[2110,H-250],[2370,H-185],[2410,H-185],[1240,H-95],[2010,H-95]].forEach((p,i)=>coinItems.push({x:p[0],y:p[1],taken:false,phase:i}));
+ enemies=[{x:350,y:H-82,w:30,h:30,v:1.1,min:310,max:400,alive:true},{x:680,y:H-82,w:30,h:30,v:1.3,min:550,max:800,alive:true},{x:1110,y:H-82,w:30,h:30,v:1.2,min:950,max:1220,alive:true},{x:1550,y:H-82,w:30,h:30,v:1.4,min:1400,max:1680,alive:true},{x:1960,y:H-82,w:30,h:30,v:1.3,min:1810,max:2070,alive:true}];
+}
+function reset(){
+ score=0;coins=0;lives=3;camera=0;player.x=60;player.y=H-100;player.vx=0;player.vy=0;player.invuln=0;makeWorld();updateHud();
+}
+function updateHud(){scoreEl.textContent=score;livesEl.textContent=lives;coinsEl.textContent=coins;}
+function start(){resize();reset();playing=true;overlay.style.display='none';last=performance.now();requestAnimationFrame(loop);}
+startBtn.addEventListener('click',start);
+function bind(id,key){
+ const el=document.getElementById(id);
+ const down=e=>{e.preventDefault();keys[key]=true;el.classList.add('down');if(key==='jump')jumpQueued=true;};
+ const up=e=>{e.preventDefault();keys[key]=false;el.classList.remove('down');};
+ el.addEventListener('pointerdown',down);el.addEventListener('pointerup',up);el.addEventListener('pointercancel',up);el.addEventListener('pointerleave',up);
+}
+bind('left','left');bind('right','right');bind('jump','jump');
+window.addEventListener('keydown',e=>{if(['ArrowLeft','ArrowRight','ArrowUp',' ','a','d','w'].includes(e.key))e.preventDefault();if(e.key==='ArrowLeft'||e.key==='a')keys.left=true;if(e.key==='ArrowRight'||e.key==='d')keys.right=true;if(e.key==='ArrowUp'||e.key===' '||e.key==='w'){if(!keys.jump)jumpQueued=true;keys.jump=true;}});
+window.addEventListener('keyup',e=>{if(e.key==='ArrowLeft'||e.key==='a')keys.left=false;if(e.key==='ArrowRight'||e.key==='d')keys.right=false;if(e.key==='ArrowUp'||e.key===' '||e.key==='w')keys.jump=false;});
+function hit(a,b){return a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y;}
+function hurt(){
+ if(player.invuln>0)return;lives--;updateHud();player.invuln=1.4;player.vy=-7;player.vx=-4;
+ if(lives<=0){end(false);return;}
+ player.x=Math.max(30,player.x-65);player.y=Math.max(20,H-150);
+}
+function end(win){
+ playing=false;overlay.style.display='flex';titleEl.textContent=win?'🎉 أحسنت! فزت!':'انتهت اللعبة';
+ messageEl.textContent=win?`وصلت إلى العلم وجمعت ${coins} عملة! نتيجتك ${score} نقطة.`:`جمعت ${coins} عملة وحققت ${score} نقطة. جرّب مرة أخرى!`;
+ startBtn.textContent='العب مرة أخرى';
+}
+function update(dt){
+ const speed=220;
+ player.vx=(keys.right?speed:0)-(keys.left?speed:0);
+ if(jumpQueued&&player.onGround){player.vy=-510;player.onGround=false;}
+ jumpQueued=false;
+ player.vy+=1250*dt;player.x+=player.vx*dt;player.y+=player.vy*dt;
+ player.x=Math.max(0,Math.min(worldW-player.w,player.x));
+ player.onGround=false;
+ for(const p of platforms){
+  if(player.x+player.w>p.x&&player.x<p.x+p.w&&player.y+player.h>p.y&&player.y+player.h<p.y+p.h+18&&player.vy>=0){
+   player.y=p.y-player.h;player.vy=0;player.onGround=true;
+  }
+ }
+ for(const e of enemies){if(!e.alive)continue;e.x+=e.v*80*dt;if(e.x<e.min||e.x>e.max)e.v*=-1;
+  if(hit(player,e)){if(player.vy>80&&player.y+player.h-e.y<20){e.alive=false;player.vy=-320;score+=100;updateHud();}else hurt();}
+ }
+ for(const c of coinItems){if(c.taken)continue;if(Math.abs((player.x+player.w/2)-c.x)<25&&Math.abs((player.y+player.h/2)-c.y)<28){c.taken=true;coins++;score+=10;updateHud();}}
+ if(player.invuln>0)player.invuln-=dt;
+ if(player.y>H+100)hurt();
+ camera=Math.max(0,Math.min(worldW-W,player.x-W*.35));
+ if(player.x>flagX)end(true);
+}
+function draw(){
+ ctx.clearRect(0,0,W,H);
+ // distant hills
+ ctx.fillStyle='#b3f0a3';for(let i=0;i<9;i++){let x=((i*180-camera*.22)% (W+220))-80;ctx.beginPath();ctx.arc(x,H-45,95,Math.PI,0);ctx.fill();}
+ // clouds
+ ctx.fillStyle='#fff';for(let i=0;i<7;i++){let x=((i*190-camera*.12)%(W+150))-50,y=45+(i%3)*35;ctx.beginPath();ctx.arc(x,y,18,0,Math.PI*2);ctx.arc(x+22,y-10,23,0,Math.PI*2);ctx.arc(x+45,y,17,0,Math.PI*2);ctx.fill();}
+ ctx.save();ctx.translate(-camera,0);
+ for(const p of platforms){ctx.fillStyle='#a85f31';ctx.fillRect(p.x,p.y,p.w,p.h);ctx.fillStyle='#39b54a';ctx.fillRect(p.x,p.y,p.w,9);ctx.fillStyle='#7c4226';for(let x=p.x+12;x<p.x+p.w;x+=32)ctx.fillRect(x,p.y+20,18,5);}
+ for(const c of coinItems){if(c.taken)continue;let bob=Math.sin(performance.now()/220+c.phase)*4;ctx.fillStyle='#ffbd21';ctx.beginPath();ctx.ellipse(c.x,c.y+bob,9,12,0,0,Math.PI*2);ctx.fill();ctx.strokeStyle='#fff2a6';ctx.lineWidth=3;ctx.stroke();}
+ for(const e of enemies){if(!e.alive)continue;ctx.fillStyle='#d94841';ctx.beginPath();ctx.roundRect(e.x,e.y,e.w,e.h,8);ctx.fill();ctx.fillStyle='#fff';ctx.fillRect(e.x+6,e.y+8,6,7);ctx.fillRect(e.x+19,e.y+8,6,7);ctx.fillStyle='#222';ctx.fillRect(e.x+8,e.y+10,3,4);ctx.fillRect(e.x+21,e.y+10,3,4);}
+ // flag
+ ctx.fillStyle='#70462a';ctx.fillRect(flagX,H-160,7,112);ctx.fillStyle='#ff4d6d';ctx.beginPath();ctx.moveTo(flagX+7,H-158);ctx.lineTo(flagX+68,H-138);ctx.lineTo(flagX+7,H-118);ctx.fill();
+ // player
+ if(player.invuln<=0||Math.floor(performance.now()/100)%2===0){
+ ctx.fillStyle='#1c65d8';ctx.fillRect(player.x+3,player.y+15,24,22);ctx.fillStyle='#ffca8a';ctx.fillRect(player.x+5,player.y+2,22,18);ctx.fillStyle='#e94242';ctx.fillRect(player.x+2,player.y,27,7);ctx.fillRect(player.x+7,player.y-5,17,6);ctx.fillStyle='#fff';ctx.fillRect(player.x+18,player.y+7,5,6);ctx.fillStyle='#263238';ctx.fillRect(player.x+20,player.y+9,2,3);ctx.fillStyle='#55351f';ctx.fillRect(player.x+4,player.y+34,10,5);ctx.fillRect(player.x+18,player.y+34,10,5);
+ }
+ ctx.restore();
+}
+function loop(t){if(!playing)return;const dt=Math.min((t-last)/1000,.035);last=t;update(dt);draw();if(playing)requestAnimationFrame(loop);}
+resize();makeWorld();draw();
+})();
+</script>
+</body>
+</html>
